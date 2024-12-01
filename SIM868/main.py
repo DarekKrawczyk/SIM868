@@ -102,6 +102,13 @@ class GNSSNavInformation(object):
     @property
     def FixMode(self) -> int:
         return self.fixMode
+
+    @property
+    def DataToList(self) -> list:
+        return [navInfo.GNSSRunStatus, navInfo.FixStatus, navInfo.DateTime, navInfo.Latitude, navInfo.Longitude, navInfo.MSLAltitude,
+                navInfo.SpeedOverGround, navInfo.CourseOverGround, navInfo.FixMode, navInfo.HDOP, navInfo.PDOP, navInfo.VDOP,
+                navInfo.GPSSatellitesInView, navInfo.GNSSSatellitesUsed, navInfo.GLONASSSatellitesInView, navInfo.CN0max,
+                navInfo.HPA, navInfo.VPA]
     
     def ParseFloat(self, rawData: str) -> float:
         if rawData == "": return 0.0
@@ -113,12 +120,18 @@ class GNSSNavInformation(object):
         
     def Parse(self, data: str = "") -> None:
         source: str = self.rawData if data == "" else data
-        if source.find("+CGNSINF: ") != -1:
-            source = source.replace("+CGNSINF: ", "")
+        if source.find("AT+CGNSINF\r\r\n+CGNSINF: ") != -1:
+            source = source = source.replace("AT+CGNSINF\r\r\n+CGNSINF: ", "") 
+        elif source.find("AT+CGNSINF") != -1:
+            source = source.replace("AT+CGNSINF\r\r\n", "")
+        elif source.find("AT+CGNSINF: ") != -1:
+            source = source.replace("AT+CGNSINF: ", "")
+            
+        # Trzeba sprawdzić czy ostatni nie jest połaczony z ok
+        if source.find("\r\n\r\nOK\r\n"):
+            source = source.replace("\r\n\r\nOK\r\n", "")
+            
         srcSplit: list = source.split(",")
-
-        print(data)
-        print(srcSplit)
 
         # Valid size for date
         if len(srcSplit) != 21: return
@@ -217,7 +230,8 @@ class SIM868(ATCommandSender):
     def GetGNSSNavInfo(self) -> GNSSNavInformation:
         moduleResponse: str = self.SendCommand("AT+CGNSINF")
         gnssni: GNSSNavInformation = GNSSNavInformation(moduleResponse)        
-        gnssni.Parse("+CGNSINF: 1,1,20241201111755.000,50.282724,18.680043,270.862,0.59,189.6,1,,2.5,2.6,0.9,,9,6,5,,43,,")
+        gnssni.Parse()
+        #gnssni.Parse("+CGNSINF: 1,1,20241201111755.000,50.282724,18.680043,270.862,0.59,189.6,1,,2.5,2.6,0.9,,9,6,5,,43,,")
         return gnssni
         
 pwr_en = 14  # pin to control the power of the module
@@ -321,11 +335,7 @@ print(f"Did module start? {started}")
 print(f"Enable GPS {sim.EnableGPS()}")
 print(f"Disable GPS {sim.DisableGPS()}")
 navInfo: GNSSNavInformation = sim.GetGNSSNavInfo()
-asList: list = [navInfo.GNSSRunStatus, navInfo.FixStatus, navInfo.DateTime, navInfo.Latitude, navInfo.Longitude, navInfo.MSLAltitude,
-                navInfo.SpeedOverGround, navInfo.CourseOverGround, navInfo.FixMode, navInfo.HDOP, navInfo.PDOP, navInfo.VDOP,
-                navInfo.GPSSatellitesInView, navInfo.GNSSSatellitesUsed, navInfo.GLONASSSatellitesInView, navInfo.CN0max,
-                navInfo.HPA, navInfo.VPA]
-print(asList)
+print(navInfo.DataToList)
 
 # ATE1
 # OK
