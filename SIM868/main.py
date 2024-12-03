@@ -103,12 +103,12 @@ class GNSSNavInformation(object):
     def FixMode(self) -> int:
         return self.fixMode
 
-    @property
-    def DataToList(self) -> list:
-        return [navInfo.GNSSRunStatus, navInfo.FixStatus, navInfo.DateTime, navInfo.Latitude, navInfo.Longitude, navInfo.MSLAltitude,
-                navInfo.SpeedOverGround, navInfo.CourseOverGround, navInfo.FixMode, navInfo.HDOP, navInfo.PDOP, navInfo.VDOP,
-                navInfo.GPSSatellitesInView, navInfo.GNSSSatellitesUsed, navInfo.GLONASSSatellitesInView, navInfo.CN0max,
-                navInfo.HPA, navInfo.VPA]
+    # @property
+    # def DataToList(self) -> list:
+    #     return [navInfo.GNSSRunStatus, navInfo.FixStatus, navInfo.DateTime, navInfo.Latitude, navInfo.Longitude, navInfo.MSLAltitude,
+    #             navInfo.SpeedOverGround, navInfo.CourseOverGround, navInfo.FixMode, navInfo.HDOP, navInfo.PDOP, navInfo.VDOP,
+    #             navInfo.GPSSatellitesInView, navInfo.GNSSSatellitesUsed, navInfo.GLONASSSatellitesInView, navInfo.CN0max,
+    #             navInfo.HPA, navInfo.VPA]
     
     def ParseFloat(self, rawData: str) -> float:
         if rawData == "": return 0.0
@@ -174,23 +174,23 @@ class ATCommandSender(object):
         encodedCommand: bytes = (command+'\r\n').encode() 
         
         self.uart.write(encodedCommand)
-        
         time = utime.ticks_ms()
         while (utime.ticks_ms() - time) < watchdog:
             if self.uart.any():
                 recievedBuffer = b"".join([recievedBuffer, self.uart.read(1)])
                 didRecieve = True
-        
-        if recievedBuffer != '':
-            result = recievedBuffer.decode()
-        elif didRecieve == False:
+        if didRecieve == False:
             result = "TIMEOUT"
+        elif recievedBuffer != b'':
+            try:
+                result = recievedBuffer.decode()
+            except:
+                result = "DECODING EXCEPTION"
         return result    
     
     def SendCommandWH(self, command: str, expectedResponse: str = "OK", watchdog: int = 100) -> list:
         isResponseCorrect: bool = False
         moduleResponse: str = self.SendCommand(command, watchdog)
-        
         if expectedResponse in moduleResponse:
             isResponseCorrect = True
         return [isResponseCorrect, moduleResponse]
@@ -199,27 +199,58 @@ class SIM868(ATCommandSender):
     def __init__(self, uart: UART, powerPin: int = 14) -> None:
         super().__init__(uart)
         self.powerPin: Pin = Pin(powerPin, Pin.OUT)
+        self.smsTextMode: bool = False
         
     def PowerReset(self) -> None:
         self.powerPin.value(1)
         utime.sleep(1)
         self.powerPin.value(0)
         
-    def StartModule(self, watchDog: int = 6000) -> bool:
+    def StartModule(self) -> bool:
         response: str = ""
         didStartCorrectly: bool = False
         
-        time = utime.ticks_ms()
-        while (utime.ticks_ms() - time) < watchDog:
-            response = self.SendCommand("ATE1")
+        while True:
+            self.SendCommand("ATE1")
+            #utime.sleep(2)
+            
             response = self.SendCommand("AT")
+            #utime.sleep(2)
+            
             if 'OK' in response:
+                #print(response)
                 return True
             else:
                 self.PowerReset()
-                utime.sleep(100)
+                utime.sleep(0.1)
                 
         return didStartCorrectly
+
+    def EnterPIN(self, PIN: str) -> None:
+        if self.IsPINRequired() == True:
+            self.SendCommand(f'AT+CPIN="{7989}"')
+
+    def IsPINRequired(self) -> bool:
+        pinRequired: str = self.SendCommand("AT+CPIN?")
+        if pinRequired.find("READY") == -1: 
+            return True
+        else: 
+            return False
+
+    def SendSMS(self, PhoneNumber: str, Message: str, CountryCode: str = "+48") -> bool:
+        if self.smsTextMode == False:
+            self.SetSMSToTextMode()
+            
+        lista = self.SendCommand(f'AT+CMGS="{PhoneNumber}"')
+        if lista[1] == "T":
+            self.uart.write(Message.encode())
+            self.uart.write(b'\x1A')  # Terminate SMS
+            return True
+        else:
+            return False
+        
+    def SetSMSToTextMode(self) -> bool:
+        return self.SendCommandWH("AT+CMGF=1")[0]
 
     def EnableGPS(self) -> bool:
         return self.SendCommandWH("AT+CGNSPWR=1")[0]
@@ -257,7 +288,7 @@ def wait_resp_info(timeout=2000):
     while (utime.ticks_ms()-prvmills) < timeout:
         if uart.any():
             info = b"".join([info, uart.read(1)])
-    print(info.decode())
+    #print(info.decode())
     return info
 
 
@@ -278,6 +309,7 @@ def send_at(cmd, back, timeout=2000):
             return 1
     else:
         print(cmd + ' no responce')
+
 
 
 # Check the network status
@@ -328,14 +360,21 @@ def get_gps_info():
                 send_at('AT+CGNSPWR=0', 'OK')
                 break
 
+#cmd: ATCommandSender = ATCommandSender(uart)
+#print(cmd.SendCommand("ATE1"))
+#print(cmd.SendCommand("AT+CPIN=\"7989\""))
 
 sim: SIM868 = SIM868(uart)
 started = sim.StartModule()
 print(f"Did module start? {started}")
-print(f"Enable GPS {sim.EnableGPS()}")
-print(f"Disable GPS {sim.DisableGPS()}")
-navInfo: GNSSNavInformation = sim.GetGNSSNavInfo()
-print(navInfo.DataToList)
+sim.EnterPIN("7989")
+print(f"Is PIN required?: {sim.IsPINRequired()}")
+wasSent = sim.SendSMS(PhoneNumber="727516980", Message="Test")
+print(f"SMS sent? {wasSent}")
+# print(f"Enable GPS {sim.EnableGPS()}")
+# print(f"Disable GPS {sim.DisableGPS()}")
+# navInfo: GNSSNavInformation = sim.GetGNSSNavInfo()
+# print(navInfo.DataToList)
 
 # ATE1
 # OK
